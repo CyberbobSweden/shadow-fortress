@@ -1,0 +1,19 @@
+# Godot 4 editor cache (regenerated on open — never commit)
+.godot/
+
+# Exported builds
+/build/
+/export/
+export.cfg
+export_presets.cfg
+
+# Godot / Mono leftovers
+.mono/
+data_*/
+mono_crash.*.json
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
