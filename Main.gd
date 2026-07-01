@@ -19,6 +19,8 @@ var _enemies_alive := 0
 var _health_fill: ColorRect
 var _stamina_fill: ColorRect
 var _banner: Label
+var _flash_label: Label
+var _flash_token := 0
 
 func _ready() -> void:
 	_build_background()
@@ -229,7 +231,7 @@ func _build_hud() -> void:
 
 	var help := Label.new()
 	help.position = Vector2(40, 130)
-	help.text = "A/D rör · Shift spring · Ctrl smyg · K garde\nJ light · U heavy · I spark · O roundhouse · L sweep"
+	help.text = "A/D rör · Shift spring · Ctrl smyg\nHÅLL K = block · TRYCK K precis vid träff = parry → kontra!\nJ light · U heavy · I spark · O roundhouse · L sweep"
 	help.modulate = Color(1, 1, 1, 0.6)
 	hud.add_child(help)
 
@@ -238,6 +240,26 @@ func _build_hud() -> void:
 	_banner.add_theme_font_size_override("font_size", 48)
 	_banner.text = ""
 	hud.add_child(_banner)
+
+	_flash_label = Label.new()
+	_flash_label.position = Vector2(820, 220)
+	_flash_label.add_theme_font_size_override("font_size", 40)
+	_flash_label.text = ""
+	hud.add_child(_flash_label)
+
+	EventBus.attack_parried.connect(func(d, _s):
+		if d == player: _flash("PARRY!", Color(0.4, 0.9, 1.0)))
+	EventBus.attack_perfect_blocked.connect(func(d, _s):
+		if d == player: _flash("PERFECT BLOCK", Color(0.6, 0.95, 0.6)))
+
+func _flash(text: String, color: Color) -> void:
+	_flash_token += 1
+	var my := _flash_token
+	_flash_label.text = text
+	_flash_label.modulate = color
+	get_tree().create_timer(0.7).timeout.connect(func():
+		if my == _flash_token:
+			_flash_label.text = "")
 
 func _make_bar(hud: CanvasLayer, pos: Vector2, color: Color, label: String) -> ColorRect:
 	var back := ColorRect.new()

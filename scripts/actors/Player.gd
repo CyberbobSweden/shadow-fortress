@@ -1,18 +1,19 @@
 class_name Player
 extends CombatActor
-## The lone warrior. Two modes: TRAVERSAL (walk/run/sneak, used to explore and
-## avoid guards) and COMBAT (raised guard, attacks). Attacks drive the hitbox
-## directly from each attack's frame data, so a Heavy Punch genuinely has the
-## long recovery the designer authored — whiff one and you will get punished.
-##
-## Attack resources are assigned in the inspector (drag .tres files in), which
-## keeps tuning out of code entirely.
+## The lone warrior. Two modes: TRAVERSAL (walk/run/sneak) and COMBAT (raised
+## guard, attacks). Attacks run off each attack's frame data. Guarding is
+## timing-graded (block / perfect block / parry) via CombatActor, and a
+## successful parry/perfect block opens a COUNTER window: your next attack comes
+## out faster, hits harder, and costs no stamina.
 
 @export var run_multiplier: float = 1.7
 @export var sneak_multiplier: float = 0.5
-## Moving normally / running makes noise enemies can hear; sneaking is quiet.
 @export var walk_noise_radius: float = 90.0
 @export var run_noise_radius: float = 220.0
+
+@export_group("Counter")
+@export var counter_damage_mult: float = 1.6
+@export var counter_startup_scale: float = 0.4
 
 @export_group("Attacks")
 @export var light_punch: AttackData
@@ -25,18 +26,23 @@ extends CombatActor
 @onready var anim: AnimationTree = $AnimationTree
 
 var _attacking: bool = false
-var _counter_window: bool = false
+var _counter_ready: bool = false
 
 func _ready() -> void:
 	super._ready()
+	can_parry = true
 	add_to_group(&"player")
 
 func _physics_process(delta: float) -> void:
 	if is_dead:
 		return
-
 	if not is_on_floor():
 		velocity.y += gravity * delta
+
+	if is_staggered:
+		velocity.x = move_toward(velocity.x, 0.0, 800.0 * delta)
+		move_and_slide()
+		return
 
 	set_guard(Input.is_action_pressed("guard") and not _attacking)
 
@@ -58,13 +64,11 @@ func _handle_movement() -> void:
 		noise = run_noise_radius
 	elif Input.is_action_pressed("sneak"):
 		speed *= sneak_multiplier
-	else:
-		if absf(dir) > 0.0:
-			noise = walk_noise_radius
+	elif absf(dir) > 0.0:
+		noise = walk_noise_radius
 
 	velocity.x = dir * speed
 
-	# Don't turn while guarding — you keep facing the threat.
 	if guard == Guard.NONE and dir != 0.0:
 		face_to(int(signf(dir)))
 
@@ -83,38 +87,51 @@ func _handle_attacks() -> void:
 	elif Input.is_action_just_pressed("sweep"):
 		_perform(sweep)
 
-## Runs one attack's full timeline: startup -> active (hitbox on) -> recovery.
-## Using awaited timers keeps this readable; in production the active window is
-## better driven by an AnimationPlayer call-method track so the hitbox is
-## frame-locked to the sprite. Both are wired the same way.
 func _perform(attack: AttackData) -> void:
 	if attack == null or _attacking:
 		return
-	if not stamina.spend(attack.stamina_cost):
-		return   # too tired — feedback handled by the HUD/stamina flash
+
+	var countering := _counter_ready
+	var mult := 1.0
+	if countering:
+		mult = counter_damage_mult
+		_counter_ready = false        # spend the window
+	elif not stamina.spend(attack.stamina_cost):
+		return                        # too tired
 
 	_attacking = true
 	velocity.x = 0.0
 
-	await get_tree().create_timer(attack.startup_time()).timeout
-	if is_dead:
-		_attacking = false
+	var startup := attack.startup_time()
+	if countering:
+		startup *= counter_startup_scale
+
+	await get_tree().create_timer(startup).timeout
+	if _interrupted():
 		return
 
-	hitbox.activate(attack, self, facing)
+	hitbox.activate(attack, self, facing, mult)
 	await get_tree().create_timer(attack.active_time()).timeout
 	hitbox.deactivate()
+	if _interrupted():
+		return
 
 	await get_tree().create_timer(attack.recovery_time()).timeout
 	_attacking = false
 
-# --- Reaction hooks ----------------------------------------------------------
-func _on_perfect_block(_source: Node) -> void:
-	# Reward: a brief window where the next attack is faster/stronger.
-	_counter_window = true
-	EventBus.camera_shake_requested.emit(0.4, 0.08)
-	get_tree().create_timer(0.25).timeout.connect(func(): _counter_window = false)
+## True if the attack was cancelled (death or stagger via _cancel_attack).
+func _interrupted() -> bool:
+	if is_dead or not _attacking:
+		hitbox.deactivate()
+		_attacking = false
+		return true
+	return false
 
-func _on_clean_hit(attack: AttackData, _source: Node) -> void:
-	if attack.height == AttackData.Height.LOW:
-		pass # play stumble; left for the animation pass
+# --- Hooks -------------------------------------------------------------------
+func _cancel_attack() -> void:
+	_attacking = false
+	hitbox.deactivate()
+
+func _open_counter(duration: float) -> void:
+	_counter_ready = true
+	get_tree().create_timer(duration).timeout.connect(func(): _counter_ready = false)

@@ -51,6 +51,13 @@ func _physics_process(delta: float) -> void:
 		return
 	if not is_on_floor():
 		velocity.y += gravity * delta
+
+	# Staggered (e.g. parried): locked out, just slide to a stop.
+	if is_staggered:
+		velocity.x = move_toward(velocity.x, 0.0, 600.0 * delta)
+		move_and_slide()
+		return
+
 	_state_timer = maxf(_state_timer - delta, 0.0)
 
 	match state:
@@ -240,15 +247,25 @@ func _perform(attack: AttackData) -> void:
 
 	_attacking = true
 	await get_tree().create_timer(attack.startup_time()).timeout
-	if is_dead:
-		_attacking = false; return
+	if _interrupted():
+		return
 	hitbox.activate(attack, self, facing)
 	await get_tree().create_timer(attack.active_time()).timeout
 	hitbox.deactivate()
+	if _interrupted():
+		return
 	await get_tree().create_timer(attack.recovery_time()).timeout
 	_attacking = false
 	if not is_dead:
 		_set_state(AIState.ENGAGE)
+
+## True if the attack was cancelled (death or stagger via _cancel_attack).
+func _interrupted() -> bool:
+	if is_dead or not _attacking:
+		hitbox.deactivate()
+		_attacking = false
+		return true
+	return false
 
 # --- Movement helpers --------------------------------------------------------
 func _move_toward_x(target_x: float, speed: float) -> void:
@@ -262,12 +279,16 @@ func _face_point(p: Vector2) -> void:
 # --- Reactions ---------------------------------------------------------------
 func _on_clean_hit(_attack: AttackData, _source: Node) -> void:
 	# Getting hit interrupts the current plan and forces a brief stagger.
+	apply_stagger(0.3)
+
+func _cancel_attack() -> void:
 	_attacking = false
 	hitbox.deactivate()
-	_set_state(AIState.STAGGER, 0.3)
-	get_tree().create_timer(0.3).timeout.connect(func():
-		if not is_dead and state == AIState.STAGGER:
-			_set_state(AIState.ENGAGE))
+	_set_state(AIState.STAGGER)
+
+func _on_stagger_end() -> void:
+	if not is_dead:
+		_set_state(AIState.ENGAGE)
 
 func _on_balance_broken() -> void:
 	super._on_balance_broken()

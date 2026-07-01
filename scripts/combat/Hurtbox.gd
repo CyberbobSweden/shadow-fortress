@@ -1,11 +1,10 @@
 class_name Hurtbox
 extends Area2D
-## The receiving volume. It detects an incoming Hitbox and forwards the raw hit
-## to the owning actor — it does NOT decide damage. All defence logic (block,
-## perfect block, parry, knockback direction) lives on CombatActor so player
-## and enemy share one rule set.
+## The receiving volume. Detects an incoming Hitbox and forwards the raw hit to
+## the owning actor — it does NOT decide damage. All defence logic lives on
+## CombatActor so player and enemy share one rule set.
 
-signal hit_received(attack: AttackData, source: Node)
+signal hit_received(attack: AttackData, source: Node, damage_mult: float)
 
 @export var actor_path: NodePath
 
@@ -23,4 +22,4 @@ func _on_area_entered(area: Area2D) -> void:
 	var hb := area as Hitbox
 	if hb.attack == null or hb.source == actor:
 		return    ## ignore stale boxes and self-hits
-	hit_received.emit(hb.attack, hb.source)
+	hit_received.emit(hb.attack, hb.source, hb.damage_mult)
